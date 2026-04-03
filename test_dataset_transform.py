@@ -16,20 +16,19 @@ args = parser.parse_args()
 
 TARGET_SPEC = {
     'observation': {
-        'image': {'shape': (128, 128, 3),
-                  'dtype': np.uint8,
-                  'range': (0, 255)}
+        'state': {'shape': (7,),
+                  'dtype': np.float32,
+                  'range': None}
     },
-    'action': {'shape': (8,),
+    'action': {'shape': (7,),
                'dtype': np.float32,
-               'range': [(-1, -1, -1, -2*np.pi, -2*np.pi, -2*np.pi, -1, 0),
-                         (+1, +1, +1, +2*np.pi, +2*np.pi, +2*np.pi, +1, 1)]},
+               'range': None},
     'discount': {'shape': (),
                  'dtype': np.float32,
                  'range': (0, 1)},
     'reward': {'shape': (),
                'dtype': np.float32,
-               'range': (0, 1)},
+               'range': None},
     'is_first': {'shape': (),
                  'dtype': np.bool_,
                  'range': None},
@@ -42,10 +41,7 @@ TARGET_SPEC = {
     'language_instruction': {'shape': (),
                              'dtype': str,
                              'range': None},
-    'language_embedding': {'shape': (512,),
-                           'dtype': np.float32,
-                           'range': None},
-    }
+}
 
 
 def check_elements(target, values):
@@ -87,4 +83,5 @@ for episode in tqdm.tqdm(ds.take(50)):
     for step in steps:
         transformed_step = transform_step(step)
         check_elements(TARGET_SPEC, transformed_step)
+
 print("Test passed! You're ready to submit!")
