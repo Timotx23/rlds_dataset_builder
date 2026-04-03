@@ -1,7 +1,7 @@
 import numpy as np
 import tqdm
 import os
-
+#used to be in test_episode 
 N_TRAIN_EPISODES = 100
 N_VAL_EPISODES = 100
 
