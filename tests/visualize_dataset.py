@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow_datasets as tfds
 
-DATASET_NAME = "test_episode"
+DATASET_NAME = "Cobot280PiDataset"
 RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 print(f"Testing TFDS load for dataset: {DATASET_NAME}")
