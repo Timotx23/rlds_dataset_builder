@@ -1,6 +1,6 @@
 import tensorflow_datasets as tfds
 
-DATASET_NAME = "test_episode"
+DATASET_NAME = "Cobot280PiDataset"
 
 # How many steps per episode to print (avoid spam)
 MAX_STEPS_TO_PRINT = 3

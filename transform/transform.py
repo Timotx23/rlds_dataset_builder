@@ -3,26 +3,53 @@ import numpy as np
 
 
 def transform_step(step: Dict[str, Any]) -> Dict[str, Any]:
-    """Maps step from source dataset to target dataset config.
-       Input is dict of numpy arrays."""
+    """Map one source step to the target dataset config.
 
-    state = np.concatenate([
-        step['observation']['arm_angles'].astype(np.float32),
-        np.array([step['observation']['gripper']], dtype=np.float32)
-    ], axis=0)
+    Input:
+        step: nested dict of numpy arrays / numpy scalars
+
+    Output:
+        {
+            "observation": {"state": np.ndarray(shape=(7,), dtype=np.float32)},
+            "action": np.ndarray(shape=(7,), dtype=np.float32),
+            "discount": np.float32,
+            "reward": np.float32,
+            "is_first": np.bool_,
+            "is_last": np.bool_,
+            "is_terminal": np.bool_,
+            "language_instruction": str or bytes,
+        }
+    """
+
+    arm_angles = np.asarray(step["observation"]["arm_angles"], dtype=np.float32)
+    gripper = np.asarray(step["observation"]["gripper"], dtype=np.float32)
+
+    if arm_angles.shape != (6,):
+        raise ValueError(
+            f"Expected observation['arm_angles'] shape (6,), got {arm_angles.shape}"
+        )
+
+    gripper = gripper.reshape(1,)
+
+    state = np.concatenate([arm_angles, gripper], axis=0).astype(np.float32)
+
+    action = np.asarray(step["action"], dtype=np.float32)
+    if action.shape != (7,):
+        raise ValueError(
+            f"Expected action shape (7,), got {action.shape}"
+        )
 
     transformed_step = {
-        'observation': {
-            'state': state,
+        "observation": {
+            "state": state,
         },
-        'action': step['action'].astype(np.float32),
+        "action": action,
+        "discount": np.float32(step["discount"]),
+        "reward": np.float32(step["reward"]),
+        "is_first": np.bool_(step["is_first"]),
+        "is_last": np.bool_(step["is_last"]),
+        "is_terminal": np.bool_(step["is_terminal"]),
+        "language_instruction": step["language_instruction"],
     }
-
-    # copy over other fields unchanged
-    for copy_key in [
-        'discount', 'reward', 'is_first', 'is_last',
-        'is_terminal', 'language_instruction'
-    ]:
-        transformed_step[copy_key] = step[copy_key]
 
     return transformed_step
