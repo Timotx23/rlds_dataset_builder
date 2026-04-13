@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Any, Iterator, Tuple
-
+import cv2
 import numpy as np
 import tensorflow_datasets as tfds
 
@@ -27,11 +27,11 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                             doc="Observed gripper state.",
                         ),
                         "cam_external": tfds.features.Image(
-                            shape=(480, 640, 3),
+                            shape=(224, 224, 3), 
                             dtype=np.uint8,
                         ),
                         "cam_wrist": tfds.features.Image(
-                            shape=(480, 640, 3),
+                            shape=(224, 224, 3), 
                             dtype=np.uint8,
                         ),
                     }),
@@ -105,7 +105,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not episode_paths:
             raise FileNotFoundError(f"No HDF5 files found under: {base_dir}")
 
-        image_shape = (480, 640, 3)
+        target_image_shape = (224, 224, 3)
 
         for episode_index, episode_path in enumerate(episode_paths):
             with h5py.File(episode_path, "r") as f:
@@ -148,27 +148,53 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 if not all(len(arr) == T for arr in arrays_to_check):
                     raise ValueError(f"Inconsistent timestep lengths in file: {episode_path}")
 
-                if "cam_external" in f["observations"]:
-                    obs_cam_external = f["observations"]["cam_external"][:]
-                    if obs_cam_external.shape != (T, *image_shape):
-                        raise ValueError(
-                            f"Expected observations/cam_external shape ({T}, {image_shape[0]}, {image_shape[1]}, {image_shape[2]}) "
-                            f"in {episode_path}, got {obs_cam_external.shape}"
-                        )
-                    obs_cam_external = obs_cam_external.astype(np.uint8)
-                else:
-                    obs_cam_external = np.zeros((T, *image_shape), dtype=np.uint8)
+                target_h, target_w = 224, 224
+                target_image_shape = (target_h, target_w, 3)
 
-                if "cam_wrist" in f["observations"]:
-                    obs_cam_wrist = f["observations"]["cam_wrist"][:]
-                    if obs_cam_wrist.shape != (T, *image_shape):
-                        raise ValueError(
-                            f"Expected observations/cam_wrist shape ({T}, {image_shape[0]}, {image_shape[1]}, {image_shape[2]}) "
-                            f"in {episode_path}, got {obs_cam_wrist.shape}"
-                        )
-                    obs_cam_wrist = obs_cam_wrist.astype(np.uint8)
+                # --- Process External Camera ---
+                if "cam_external" in f["observations"]:
+                    raw_cam_external = f["observations"]["cam_external"][:]
+                    
+                    # raw_cam_external shape is expected to be (T, H, W, C)
+                    current_h, current_w = raw_cam_external.shape[1], raw_cam_external.shape[2]
+                    
+                    if (current_h, current_w) == (target_h, target_w):
+                        # Skip resizing, just copy the array
+                        obs_cam_external = raw_cam_external
+                    else:
+                        # Pre-allocate and resize
+                        obs_cam_external = np.empty((T, *target_image_shape), dtype=np.uint8)
+                        for i in range(T):
+                            obs_cam_external[i] = cv2.resize(
+                                raw_cam_external[i], (target_w, target_h), interpolation=cv2.INTER_AREA
+                            )
+                            
+                    # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
+                    # for i in range(T):
+                    #     obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
                 else:
-                    obs_cam_wrist = np.zeros((T, *image_shape), dtype=np.uint8)
+                    obs_cam_external = np.zeros((T, *target_image_shape), dtype=np.uint8)
+
+                # --- Process Wrist Camera ---
+                if "cam_wrist" in f["observations"]:
+                    raw_cam_wrist = f["observations"]["cam_wrist"][:]
+                    
+                    current_h, current_w = raw_cam_wrist.shape[1], raw_cam_wrist.shape[2]
+                    
+                    if (current_h, current_w) == (target_h, target_w):
+                        obs_cam_wrist = raw_cam_wrist
+                    else:
+                        obs_cam_wrist = np.empty((T, *target_image_shape), dtype=np.uint8)
+                        for i in range(T):
+                            obs_cam_wrist[i] = cv2.resize(
+                                raw_cam_wrist[i], (target_w, target_h), interpolation=cv2.INTER_AREA
+                            )
+                            
+                    # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
+                    # for i in range(T):
+                    #     obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
+                else:
+                    obs_cam_wrist = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
             episode = []
             for i in range(T):

@@ -122,4 +122,5 @@ dependencies:
       - wrapt==1.15.0
       - zipp==3.16.2
       - zstandard==0.21.0
+      - opencv-python==4.13.0.92
 prefix: /scr/kpertsch/miniconda3/envs/rlds_env

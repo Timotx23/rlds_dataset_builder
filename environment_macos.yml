@@ -192,4 +192,5 @@ dependencies:
       - wrapt==2.1.2
       - zipp==3.23.0
       - zstandard==0.25.0
+      - opencv-python==4.13.0.92
 
