@@ -4,7 +4,6 @@ from typing import Any, Iterator, Tuple
 import numpy as np
 import tensorflow_datasets as tfds
 
-
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
@@ -72,6 +71,9 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                     ),
                     "file_path": tfds.features.Text(
                         doc="Path to the original data file.",
+                    ),
+                    "language_instruction": tfds.features.Text(
+                        doc="Language instruction.",
                     ),
                 }),
             })
