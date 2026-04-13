@@ -117,6 +117,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                     is_first = f["is_first"][:]
                     is_last = f["is_last"][:]
                     is_terminal = f["is_terminal"][:]
+                    language_instruction: str = f.attrs["task"]
                 except KeyError as e:
                     raise KeyError(
                         f"Missing expected dataset/key in HDF5 file {episode_path}: {e}"
@@ -187,7 +188,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                     "is_first": bool(is_first[i]),
                     "is_last": bool(is_last[i]),
                     "is_terminal": bool(is_terminal[i]),
-                    "language_instruction": "move robot arm",
+                    "language_instruction": language_instruction,
                 }
                 episode.append(step)
 
@@ -196,6 +197,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 "episode_metadata": {
                     "episode_index": np.int64(episode_index),
                     "file_path": str(episode_path),
+                    "language_instruction": language_instruction
                 },
             }
 
