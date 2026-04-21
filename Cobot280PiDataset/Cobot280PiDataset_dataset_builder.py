@@ -3,13 +3,15 @@ from typing import Any, Iterator, Tuple
 import cv2
 import numpy as np
 import tensorflow_datasets as tfds
+import h5py
+import random
 
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("1.0.0")
+    VERSION = tfds.core.Version("0.2.0")
     RELEASE_NOTES = {
-        "1.0.0": "Initial release.",
+        "0.2.0": "Initial release.",
     }
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -85,18 +87,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not base_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {base_dir}")
 
-        return [
-            tfds.core.SplitGenerator(
-                name=tfds.Split.TRAIN,
-                gen_kwargs={"path": base_dir},
-            ),
-        ]
-
-    def _generate_examples(self, path: Path) -> Iterator[Tuple[str, Any]]:
-        import h5py
-
-        base_dir = Path(path)
-
+        # Collect all episode files (same logic as in _generate_examples)
         episode_paths = sorted(
             p for p in base_dir.rglob("*")
             if p.is_file() and p.suffix in {".h5", ".hdf5"}
@@ -105,9 +96,34 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not episode_paths:
             raise FileNotFoundError(f"No HDF5 files found under: {base_dir}")
 
+        rng = random.Random(42)
+        rng.shuffle(episode_paths)
+
+        split_ratio = 0.9
+        split_idx = int(len(episode_paths) * split_ratio)
+
+        train_paths = episode_paths[:split_idx]
+        val_paths = episode_paths[split_idx:]
+
+        return [
+            tfds.core.SplitGenerator(
+                name=tfds.Split.TRAIN,
+                gen_kwargs={"episode_paths": train_paths},
+            ),
+            tfds.core.SplitGenerator(
+                name=tfds.Split.VALIDATION,
+                gen_kwargs={"episode_paths": val_paths},
+            ),
+        ]
+
+    def _generate_examples(self, episode_paths) -> Iterator[Tuple[str, Any]]:
+
+
         target_image_shape = (224, 224, 3)
 
         for episode_index, episode_path in enumerate(episode_paths):
+
+            print(f"Episode: {episode_path}")
             with h5py.File(episode_path, "r") as f:
                 try:
                     obs_arm = f["observations"]["arm_angles"][:]
