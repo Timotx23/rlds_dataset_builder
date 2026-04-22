@@ -9,9 +9,9 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.3.0")
+    VERSION = tfds.core.Version("0.3.1")
     RELEASE_NOTES = {
-        "0.3.0": "22 april scuffed uni monitor table recording",
+        "0.3.1": "22 april scuffed uni monitor table recording - PROPER CENTER CROP",
     }
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -170,47 +170,26 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 # --- Process External Camera ---
                 if "cam_external" in f["observations"]:
                     raw_cam_external = f["observations"]["cam_external"][:]
-                    
-                    # raw_cam_external shape is expected to be (T, H, W, C)
-                    current_h, current_w = raw_cam_external.shape[1], raw_cam_external.shape[2]
-                    
-                    if (current_h, current_w) == (target_h, target_w):
-                        # Skip resizing, just copy the array
-                        obs_cam_external = raw_cam_external
-                    else:
-                        # Pre-allocate and resize
-                        obs_cam_external = np.empty((T, *target_image_shape), dtype=np.uint8)
-                        for i in range(T):
-                            obs_cam_external[i] = cv2.resize(
-                                raw_cam_external[i], (target_w, target_h), interpolation=cv2.INTER_AREA
-                            )
-                            
-                    # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    # for i in range(T):
-                    #     obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
-                else:
-                    obs_cam_external = np.zeros((T, *target_image_shape), dtype=np.uint8)
+ 
+                    # Call the function (returns the perfectly cropped 224x224 batch)
+                    obs_cam_external = process_camera_batch(
+                        raw_cam_data=raw_cam_external, 
+                        target_h=224, 
+                        target_w=224,
+                        convert_bgr_to_rgb=False # Change to True if your HDF5 saved BGR images
+                    )                   
 
                 # --- Process Wrist Camera ---
                 if "cam_wrist" in f["observations"]:
                     raw_cam_wrist = f["observations"]["cam_wrist"][:]
                     
-                    current_h, current_w = raw_cam_wrist.shape[1], raw_cam_wrist.shape[2]
+                    obs_cam_wrist = process_camera_batch(
+                        raw_cam_data=raw_cam_wrist, 
+                        target_h=224, 
+                        target_w=224,
+                        convert_bgr_to_rgb=False # Change to True if your HDF5 saved BGR images
+                    )                   
                     
-                    if (current_h, current_w) == (target_h, target_w):
-                        obs_cam_wrist = raw_cam_wrist
-                    else:
-                        obs_cam_wrist = np.empty((T, *target_image_shape), dtype=np.uint8)
-                        for i in range(T):
-                            obs_cam_wrist[i] = cv2.resize(
-                                raw_cam_wrist[i], (target_w, target_h), interpolation=cv2.INTER_AREA
-                            )
-                            
-                    # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    # for i in range(T):
-                    #     obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
-                else:
-                    obs_cam_wrist = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
             episode = []
             for i in range(T):
@@ -247,3 +226,54 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
 
             key = f"episode_{episode_index:06d}"
             yield key, sample
+
+
+
+def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_to_rgb=False):
+    """
+    Resizes and center-crops a batch of images to the target resolution.
+    
+    Args:
+        raw_cam_data (np.ndarray): The raw camera data of shape (T, H, W, C).
+        target_h (int): Target height (default 224).
+        target_w (int): Target width (default 224).
+        convert_bgr_to_rgb (bool): Set to True if images are BGR and need to be RGB.
+        
+    Returns:
+        np.ndarray: Processed image batch of shape (T, target_h, target_w, C) in uint8.
+    """
+    T = raw_cam_data.shape[0]
+    current_h, current_w = raw_cam_data.shape[1], raw_cam_data.shape[2]
+    channels = raw_cam_data.shape[3]
+    
+    # Calculate scale to ensure the resized image is large enough to crop from.
+    # We take the max of the height/width ratios so the shortest edge matches the target.
+    scale = max(target_h / current_h, target_w / current_w)
+    new_h, new_w = int(current_h * scale), int(current_w * scale)
+    
+    # Calculate center crop coordinates
+    y_start = (new_h - target_h) // 2
+    x_start = (new_w - target_w) // 2
+    
+    # Pre-allocate array for speed
+    processed_data = np.empty((T, target_h, target_w, channels), dtype=np.uint8)
+    
+    for i in range(T):
+        img = raw_cam_data[i]
+        
+        # 1. Optional Color Conversion
+        if convert_bgr_to_rgb:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+        # 2. Skip resizing if the image is already the exact right shape
+        if (current_h, current_w) == (target_h, target_w):
+            processed_data[i] = img
+            continue
+            
+        # 3. Resize keeping aspect ratio
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # 4. Apply center crop and store
+        processed_data[i] = resized[y_start:y_start+target_h, x_start:x_start+target_w]
+        
+    return processed_data
