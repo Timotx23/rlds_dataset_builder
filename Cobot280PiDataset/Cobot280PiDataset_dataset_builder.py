@@ -9,9 +9,9 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.2.0")
+    VERSION = tfds.core.Version("0.3.0")
     RELEASE_NOTES = {
-        "0.2.0": "Initial release.",
+        "0.3.0": "22 april scuffed uni monitor table recording",
     }
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -111,7 +111,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 gen_kwargs={"episode_paths": train_paths},
             ),
             tfds.core.SplitGenerator(
-                name=tfds.Split.VALIDATION,
+                name="val",
                 gen_kwargs={"episode_paths": val_paths},
             ),
         ]
@@ -186,8 +186,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                             )
                             
                     # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    # for i in range(T):
-                    #     obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
+                    for i in range(T):
+                        obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
                 else:
                     obs_cam_external = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
@@ -207,8 +207,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                             )
                             
                     # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    # for i in range(T):
-                    #     obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
+                    for i in range(T):
+                        obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
                 else:
                     obs_cam_wrist = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
