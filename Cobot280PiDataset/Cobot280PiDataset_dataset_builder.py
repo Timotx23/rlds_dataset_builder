@@ -186,8 +186,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                             )
                             
                     # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    for i in range(T):
-                        obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
+                    # for i in range(T):
+                    #     obs_cam_external[i] = cv2.cvtColor(obs_cam_external[i], cv2.COLOR_BGR2RGB)
                 else:
                     obs_cam_external = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
@@ -207,8 +207,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                             )
                             
                     # IMPORTANT: If your HDF5 images are saved in BGR format, uncomment the loop below:
-                    for i in range(T):
-                        obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
+                    # for i in range(T):
+                    #     obs_cam_wrist[i] = cv2.cvtColor(obs_cam_wrist[i], cv2.COLOR_BGR2RGB)
                 else:
                     obs_cam_wrist = np.zeros((T, *target_image_shape), dtype=np.uint8)
 
