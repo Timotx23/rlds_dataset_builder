@@ -106,7 +106,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
             try:
                 with h5py.File(path, "r") as f:
                     # Fallback to 'unknown_task' just in case an episode is missing the attribute
-                    task = f.attrs.get("task", "unknown_task") 
+                    task = f.attrs.get("task") 
                     task_to_paths[task].append(path)
             except Exception as e:
                 raise IOError(f"Failed to read task attribute from {path}: {e}")
