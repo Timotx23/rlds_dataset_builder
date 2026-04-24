@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Iterator, Tuple
+from collections import defaultdict
 import cv2
 import numpy as np
 import tensorflow_datasets as tfds
@@ -9,9 +10,12 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.3.1")
+    VERSION = tfds.core.Version("0.4.1")
     RELEASE_NOTES = {
         "0.3.1": "22 april scuffed uni monitor table recording - PROPER CENTER CROP",
+        "0.3.2": "22 april rewrite task",
+        "0.4.0": "24 april library left and right",
+        "0.4.1": "24 april library left and right color fix"
     }
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -87,7 +91,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not base_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {base_dir}")
 
-        # Collect all episode files (same logic as in _generate_examples)
+        # Collect all episode files
         episode_paths = sorted(
             p for p in base_dir.rglob("*")
             if p.is_file() and p.suffix in {".h5", ".hdf5"}
@@ -96,14 +100,37 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not episode_paths:
             raise FileNotFoundError(f"No HDF5 files found under: {base_dir}")
 
+        # 1. Group files by their task attribute
+        task_to_paths = defaultdict(list)
+        for path in episode_paths:
+            try:
+                with h5py.File(path, "r") as f:
+                    # Fallback to 'unknown_task' just in case an episode is missing the attribute
+                    task = f.attrs.get("task", "unknown_task") 
+                    task_to_paths[task].append(path)
+            except Exception as e:
+                raise IOError(f"Failed to read task attribute from {path}: {e}")
+
+        train_paths = []
+        val_paths = []
         rng = random.Random(42)
-        rng.shuffle(episode_paths)
-
         split_ratio = 0.9
-        split_idx = int(len(episode_paths) * split_ratio)
 
-        train_paths = episode_paths[:split_idx]
-        val_paths = episode_paths[split_idx:]
+        # 2. Perform the 90/10 split within each task group
+        for task, paths in task_to_paths.items():
+            rng.shuffle(paths)
+            split_idx = int(len(paths) * split_ratio)
+            
+            # Edge case handling: if a task has very few files (e.g., 1 file), put it in train
+            if split_idx == 0 and len(paths) > 0:
+                train_paths.extend(paths)
+            else:
+                train_paths.extend(paths[:split_idx])
+                val_paths.extend(paths[split_idx:])
+
+        # 3. Shuffle the final lists so batches aren't strictly grouped by task sequence
+        rng.shuffle(train_paths)
+        rng.shuffle(val_paths)
 
         return [
             tfds.core.SplitGenerator(
@@ -117,9 +144,6 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         ]
 
     def _generate_examples(self, episode_paths) -> Iterator[Tuple[str, Any]]:
-
-
-        target_image_shape = (224, 224, 3)
 
         for episode_index, episode_path in enumerate(episode_paths):
 
@@ -163,9 +187,6 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 ]
                 if not all(len(arr) == T for arr in arrays_to_check):
                     raise ValueError(f"Inconsistent timestep lengths in file: {episode_path}")
-
-                target_h, target_w = 224, 224
-                target_image_shape = (target_h, target_w, 3)
 
                 # --- Process External Camera ---
                 if "cam_external" in f["observations"]:
