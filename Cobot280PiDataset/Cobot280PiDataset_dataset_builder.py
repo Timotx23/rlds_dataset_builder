@@ -10,12 +10,13 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.4.1")
+    VERSION = tfds.core.Version("0.4.2")
     RELEASE_NOTES = {
         "0.3.1": "22 april scuffed uni monitor table recording - PROPER CENTER CROP",
         "0.3.2": "22 april rewrite task",
         "0.4.0": "24 april library left and right",
-        "0.4.1": "24 april library left and right color fix"
+        "0.4.1": "24 april library left and right color fix",
+        "0.4.2": "24 april library left and right color fix tilt wrist"
     }
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -197,7 +198,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                         raw_cam_data=raw_cam_external, 
                         target_h=224, 
                         target_w=224,
-                        convert_bgr_to_rgb=False # Change to True if your HDF5 saved BGR images
+                        convert_bgr_to_rgb=True # Change to True if your HDF5 saved BGR images
                     )                   
 
                 # --- Process Wrist Camera ---
@@ -208,7 +209,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                         raw_cam_data=raw_cam_wrist, 
                         target_h=224, 
                         target_w=224,
-                        convert_bgr_to_rgb=False # Change to True if your HDF5 saved BGR images
+                        convert_bgr_to_rgb=True, # Change to True if your HDF5 saved BGR images,
+                        rotate_left_90=True
                     )                   
                     
 
@@ -249,23 +251,28 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
             yield key, sample
 
 
-
-def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_to_rgb=False):
+def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_to_rgb=False, rotate_left_90=False):
     """
-    Resizes and center-crops a batch of images to the target resolution.
+    Resizes and center-crops a batch of images to the target resolution,
+    with an option to rotate the frames 90 degrees to the left.
     
     Args:
         raw_cam_data (np.ndarray): The raw camera data of shape (T, H, W, C).
         target_h (int): Target height (default 224).
         target_w (int): Target width (default 224).
         convert_bgr_to_rgb (bool): Set to True if images are BGR and need to be RGB.
+        rotate_left_90 (bool): Set to True to rotate frames 90 degrees counter-clockwise.
         
     Returns:
         np.ndarray: Processed image batch of shape (T, target_h, target_w, C) in uint8.
     """
     T = raw_cam_data.shape[0]
-    current_h, current_w = raw_cam_data.shape[1], raw_cam_data.shape[2]
+    original_h, original_w = raw_cam_data.shape[1], raw_cam_data.shape[2]
     channels = raw_cam_data.shape[3]
+    
+    # If rotating 90 degrees, the effective starting height and width are swapped
+    current_h = original_w if rotate_left_90 else original_h
+    current_w = original_h if rotate_left_90 else original_w
     
     # Calculate scale to ensure the resized image is large enough to crop from.
     # We take the max of the height/width ratios so the shortest edge matches the target.
@@ -282,19 +289,24 @@ def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_t
     for i in range(T):
         img = raw_cam_data[i]
         
-        # 1. Optional Color Conversion
+        # 1. Optional Rotation
+        if rotate_left_90:
+            # ROTATE_90_COUNTERCLOCKWISE rotates 90 degrees to the left
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            
+        # 2. Optional Color Conversion
         if convert_bgr_to_rgb:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-        # 2. Skip resizing if the image is already the exact right shape
+        # 3. Skip resizing if the image is already the exact right shape
         if (current_h, current_w) == (target_h, target_w):
             processed_data[i] = img
             continue
             
-        # 3. Resize keeping aspect ratio
+        # 4. Resize keeping aspect ratio
         resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
         
-        # 4. Apply center crop and store
+        # 5. Apply center crop and store
         processed_data[i] = resized[y_start:y_start+target_h, x_start:x_start+target_w]
         
     return processed_data
