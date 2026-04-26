@@ -10,14 +10,25 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.4.2")
+    VERSION = tfds.core.Version("0.5.0")
     RELEASE_NOTES = {
         "0.3.1": "22 april scuffed uni monitor table recording - PROPER CENTER CROP",
         "0.3.2": "22 april rewrite task",
         "0.4.0": "24 april library left and right",
         "0.4.1": "24 april library left and right color fix",
-        "0.4.2": "24 april library left and right color fix tilt wrist"
+        "0.4.2": "24 april library left and right color fix tilt wrist",
+        "0.5.0": "26 april library pick block variety"
     }
+
+    # Define the attributes used for stratified splitting here to keep it modular
+    STRATIFY_ATTRIBUTES = [
+        "task",
+        "location",
+        "distractors",
+        "camera_pos",
+        "blue_pos",
+        "block_proximity"
+    ]
 
     def _info(self) -> tfds.core.DatasetInfo:
         return self.dataset_info_from_configs(
@@ -82,9 +93,22 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                     "language_instruction": tfds.features.Text(
                         doc="Language instruction.",
                     ),
+                    "location": tfds.features.Text(doc="Episode location."),
+                    "distractors": tfds.features.Text(doc="Presence of distractors."),
+                    "camera_pos": tfds.features.Text(doc="Camera position."),
+                    "blue_pos": tfds.features.Text(doc="Position of the blue block."),
+                    "block_proximity": tfds.features.Text(doc="Proximity of blocks."),
                 }),
             })
         )
+
+    def _decode_attr(self, val):
+        """Helper to safely decode HDF5 string attributes which might be bytes."""
+        if isinstance(val, bytes):
+            return val.decode("utf-8")
+        elif isinstance(val, np.bytes_):
+            return val.astype(str)
+        return str(val)
 
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         base_dir = Path(__file__).resolve().parent / "Cobot280PiDataset"
@@ -101,35 +125,38 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         if not episode_paths:
             raise FileNotFoundError(f"No HDF5 files found under: {base_dir}")
 
-        # 1. Group files by their task attribute
-        task_to_paths = defaultdict(list)
+        # 1. Group files by their combined strata attributes
+        strata_to_paths = defaultdict(list)
         for path in episode_paths:
             try:
                 with h5py.File(path, "r") as f:
-                    # Fallback to 'unknown_task' just in case an episode is missing the attribute
-                    task = f.attrs.get("task") 
-                    task_to_paths[task].append(path)
+                    # Create a composite tuple key based on the desired attributes
+                    stratum_key = tuple(
+                        self._decode_attr(f.attrs.get(attr, "unknown"))
+                        for attr in self.STRATIFY_ATTRIBUTES
+                    )
+                    strata_to_paths[stratum_key].append(path)
             except Exception as e:
-                raise IOError(f"Failed to read task attribute from {path}: {e}")
+                raise IOError(f"Failed to read stratification attributes from {path}: {e}")
 
         train_paths = []
         val_paths = []
         rng = random.Random(42)
         split_ratio = 0.9
 
-        # 2. Perform the 90/10 split within each task group
-        for task, paths in task_to_paths.items():
+        # 2. Perform the 90/10 split within each distinct stratum group
+        for stratum_key, paths in strata_to_paths.items():
             rng.shuffle(paths)
             split_idx = int(len(paths) * split_ratio)
             
-            # Edge case handling: if a task has very few files (e.g., 1 file), put it in train
+            # Edge case handling: if a stratum has very few files (e.g., 1 file), put it in train
             if split_idx == 0 and len(paths) > 0:
                 train_paths.extend(paths)
             else:
                 train_paths.extend(paths[:split_idx])
                 val_paths.extend(paths[split_idx:])
 
-        # 3. Shuffle the final lists so batches aren't strictly grouped by task sequence
+        # 3. Shuffle the final lists so batches aren't strictly grouped by sequence
         rng.shuffle(train_paths)
         rng.shuffle(val_paths)
 
@@ -160,7 +187,15 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                     is_first = f["is_first"][:]
                     is_last = f["is_last"][:]
                     is_terminal = f["is_terminal"][:]
-                    language_instruction: str = f.attrs["task"]
+                    
+                    # Read and safely decode all relevant attributes
+                    language_instruction = self._decode_attr(f.attrs.get("task"))
+                    location = self._decode_attr(f.attrs.get("location"))
+                    distractors = self._decode_attr(f.attrs.get("distractors"))
+                    camera_pos = self._decode_attr(f.attrs.get("camera_pos"))
+                    blue_pos = self._decode_attr(f.attrs.get("blue_pos"))
+                    block_proximity = self._decode_attr(f.attrs.get("block_proximity"))
+                    
                 except KeyError as e:
                     raise KeyError(
                         f"Missing expected dataset/key in HDF5 file {episode_path}: {e}"
@@ -198,7 +233,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                         raw_cam_data=raw_cam_external, 
                         target_h=224, 
                         target_w=224,
-                        convert_bgr_to_rgb=True # Change to True if your HDF5 saved BGR images
+                        convert_bgr_to_rgb=False # Change to True if your HDF5 saved BGR images
                     )                   
 
                 # --- Process Wrist Camera ---
@@ -209,8 +244,8 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                         raw_cam_data=raw_cam_wrist, 
                         target_h=224, 
                         target_w=224,
-                        convert_bgr_to_rgb=True, # Change to True if your HDF5 saved BGR images,
-                        rotate_left_90=True
+                        convert_bgr_to_rgb=False, # Change to True if your HDF5 saved BGR images,
+                        rotate_left_90=False
                     )                   
                     
 
@@ -243,7 +278,12 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 "episode_metadata": {
                     "episode_index": np.int64(episode_index),
                     "file_path": str(episode_path),
-                    "language_instruction": language_instruction
+                    "language_instruction": language_instruction,
+                    "location": location,
+                    "distractors": distractors,
+                    "camera_pos": camera_pos,
+                    "blue_pos": blue_pos,
+                    "block_proximity": block_proximity,
                 },
             }
 
@@ -255,16 +295,6 @@ def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_t
     """
     Resizes and center-crops a batch of images to the target resolution,
     with an option to rotate the frames 90 degrees to the left.
-    
-    Args:
-        raw_cam_data (np.ndarray): The raw camera data of shape (T, H, W, C).
-        target_h (int): Target height (default 224).
-        target_w (int): Target width (default 224).
-        convert_bgr_to_rgb (bool): Set to True if images are BGR and need to be RGB.
-        rotate_left_90 (bool): Set to True to rotate frames 90 degrees counter-clockwise.
-        
-    Returns:
-        np.ndarray: Processed image batch of shape (T, target_h, target_w, C) in uint8.
     """
     T = raw_cam_data.shape[0]
     original_h, original_w = raw_cam_data.shape[1], raw_cam_data.shape[2]
@@ -275,7 +305,6 @@ def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_t
     current_w = original_h if rotate_left_90 else original_w
     
     # Calculate scale to ensure the resized image is large enough to crop from.
-    # We take the max of the height/width ratios so the shortest edge matches the target.
     scale = max(target_h / current_h, target_w / current_w)
     new_h, new_w = int(current_h * scale), int(current_w * scale)
     
@@ -291,7 +320,6 @@ def process_camera_batch(raw_cam_data, target_h=224, target_w=224, convert_bgr_t
         
         # 1. Optional Rotation
         if rotate_left_90:
-            # ROTATE_90_COUNTERCLOCKWISE rotates 90 degrees to the left
             img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             
         # 2. Optional Color Conversion
