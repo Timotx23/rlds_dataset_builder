@@ -10,24 +10,22 @@ import random
 class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for HDF5 robot episodes."""
 
-    VERSION = tfds.core.Version("0.5.0")
+    VERSION = tfds.core.Version("1.0.0")
     RELEASE_NOTES = {
         "0.3.1": "22 april scuffed uni monitor table recording - PROPER CENTER CROP",
         "0.3.2": "22 april rewrite task",
         "0.4.0": "24 april library left and right",
         "0.4.1": "24 april library left and right color fix",
         "0.4.2": "24 april library left and right color fix tilt wrist",
-        "0.5.0": "26 april library pick block variety"
+        "0.5.0": "26 april library pick block variety",
+        "0.6.0": "26 april library pick block variety + 28 apr ",
+        "1.0.0": "May 4 0.5 + 0.6 + loc 2 final eps "
     }
 
-    # Define the attributes used for stratified splitting here to keep it modular
+    # Stratify only on these two features
     STRATIFY_ATTRIBUTES = [
-        "task",
-        "location",
         "distractors",
-        "camera_pos",
-        "blue_pos",
-        "block_proximity"
+        "camera_pos"
     ]
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -130,11 +128,17 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         for path in episode_paths:
             try:
                 with h5py.File(path, "r") as f:
-                    # Create a composite tuple key based on the desired attributes
-                    stratum_key = tuple(
-                        self._decode_attr(f.attrs.get(attr, "unknown"))
-                        for attr in self.STRATIFY_ATTRIBUTES
-                    )
+                    stratum_elements = []
+                    for attr in self.STRATIFY_ATTRIBUTES:
+                        val = self._decode_attr(f.attrs.get(attr, "unknown"))
+                        
+                        # Only care about the 'l' or 'r' for camera position
+                        if attr == "camera_pos" and val != "unknown":
+                            val = val.split('_')[0]
+                            
+                        stratum_elements.append(val)
+
+                    stratum_key = tuple(stratum_elements)
                     strata_to_paths[stratum_key].append(path)
             except Exception as e:
                 raise IOError(f"Failed to read stratification attributes from {path}: {e}")
@@ -142,9 +146,9 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         train_paths = []
         val_paths = []
         rng = random.Random(42)
-        split_ratio = 0.9
+        split_ratio = 0.95 # 95% train, 5% val
 
-        # 2. Perform the 90/10 split within each distinct stratum group
+        # 2. Perform the 95/5 split within each distinct stratum group
         for stratum_key, paths in strata_to_paths.items():
             rng.shuffle(paths)
             split_idx = int(len(paths) * split_ratio)
@@ -159,6 +163,12 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
         # 3. Shuffle the final lists so batches aren't strictly grouped by sequence
         rng.shuffle(train_paths)
         rng.shuffle(val_paths)
+        
+        # 4. Print episode split counts
+        print(f"\n--- Dataset Split Counts ---")
+        print(f"Total training episodes:   {len(train_paths)}")
+        print(f"Total validation episodes: {len(val_paths)}")
+        print(f"----------------------------\n")
 
         return [
             tfds.core.SplitGenerator(
@@ -227,7 +237,7 @@ class Cobot280PiDataset(tfds.core.GeneratorBasedBuilder):
                 # --- Process External Camera ---
                 if "cam_external" in f["observations"]:
                     raw_cam_external = f["observations"]["cam_external"][:]
- 
+
                     # Call the function (returns the perfectly cropped 224x224 batch)
                     obs_cam_external = process_camera_batch(
                         raw_cam_data=raw_cam_external, 
